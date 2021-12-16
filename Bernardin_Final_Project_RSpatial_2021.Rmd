@@ -310,8 +310,8 @@ plot(max.fit1)
 response(max.fit1)
 
 #evaluate model
-e1 <- evaluate(max.fit1, p = x, a = bg.sf, x = environ.stack)
-e1
+e1 <- evaluate(max.fit1, p = x, a = bg, x = environ.stack)
+e1 #0.9182098
 plot(e1, 'ROC')
 
 
@@ -324,8 +324,8 @@ plot(max.fit2)
 response(max.fit2)
 
 #evaluate model
-e2 <- evaluate(max.fit2, p = x, a = bg.sf, x = short.stack)
-e2
+e2 <- evaluate(max.fit2, p = x, a = bg, x = short.stack)
+e2 #0.8906049
 plot(e2, 'ROC')
 
 ```
