@@ -39,10 +39,11 @@ library(rgdal)
 library(rgeos)
 library(randomForest)
 library(dplyr)
-install.packages("elevatr")
 library(elevatr)
 library(rJava)
-
+library(ISLR)
+install.packages("pROC")
+library(pROC)
 ```
 
 
@@ -237,7 +238,10 @@ logistic.global <- glm(pres~temp + precip + max_temp + min_temp + elevation, fam
 logistic.global
 summary(logistic.global)
 
-
+#calculate probability of default for each individual in test dataset
+predicted.1 <- predict(logistic.global, presabs.df, type="response")
+#calculate AUC
+auc(presabs.df$pres, predicted.1) #AUC = 0.882
 
 #REDUCED MODEL
 #model using two of the predictors
@@ -245,6 +249,25 @@ logistic.two <- glm(pres ~ precip + elevation, family=binomial(link="logit"), da
 logistic.two
 summary(logistic.two)
 
+#calculate probability of default for each individual in test dataset
+predicted.2 <- predict(logistic.two, presabs.df, type="response")
+#calculate AUC
+auc(presabs.df$pres, predicted.2) #AUC = 0.691
+
+
+
+
+#CONFUSION MATRIX
+#global
+
+install.packages("caret")
+library(caret)
+#use model to predict probability of presence
+predicted.1 <- predict(logistic.global, presabs.df, type="response")
+head(predicted.1)
+presabs.df$pres <- as.factor(presabs.df$pres)
+#create confusion matrix
+confusionMatrix(presabs.df$pres, predicted.1)
 
 ```
 
@@ -259,11 +282,22 @@ glob.model <- pres ~ temp + precip + max_temp + min_temp + elevation
 rf1 <- randomForest(glob.model, data=presabs.df.nona, na.rm = TRUE)
 varImpPlot(rf1)
 
+#AUC
+rf1.roc<-roc(presabs.df.nona$pres,rf1$votes[,2])
+plot(rf1.roc)
+auc(rf1.roc) #0.9511
+
+
 #REDUCED MODEL
 #random forest regression
 reg.model <- pres ~ precip + elevation
 rf2 <- randomForest(reg.model, data = presabs.df.nona)
 varImpPlot(rf2)
+
+#AUC
+rf2.roc<-roc(presabs.df.nona$pres,rf2$votes[,2])
+plot(rf2.roc)
+auc(rf2.roc) #0.9212
 ```
 
 
@@ -277,8 +311,8 @@ response(max.fit1)
 
 #evaluate model
 e1 <- evaluate(max.fit1, p = x, a = bg.sf, x = environ.stack)
+e1
 plot(e1, 'ROC')
-
 
 
 
@@ -291,20 +325,12 @@ response(max.fit2)
 
 #evaluate model
 e2 <- evaluate(max.fit2, p = x, a = bg.sf, x = short.stack)
+e2
 plot(e2, 'ROC')
 
 ```
 
 
-```{r conmatrx}
-
-
-
-
-
-
-
-```
 
 ```{r kfcv}
 
