@@ -39,6 +39,8 @@ library(rgdal)
 library(rgeos)
 library(randomForest)
 library(dplyr)
+library(devtools)
+install_github("jhollist/elevatr")
 library(elevatr)
 library(rJava)
 library(ISLR)
@@ -82,11 +84,13 @@ The goal of this project was to gain experiment working with spatial data and an
 
 ## Methods
 
-# Data
+### Data
 
-Plant point occurrence data was downloaded using the rgbif package which pulls observations data from iNaturalist.  These data are citizen science observations and could also include points for plants present in herbarium, botanical gardens, planted ornamentals.  Climatic variables used as predictors were extracted from world climate data using the raster package in r.  Elevation data for each pitcher observation was downloaded using the elevatr package.  The pitcher observation points were filtered to include only observations in the contiguous United States and predictor variables were extracted for each observation.  A data frame was created to hold this data, along with 10,000 randomly generated background points in the US and their extracted predictor variables.
+Plant point occurrence data was downloaded using the `rgbif` package which pulls observations data from iNaturalist.  These data are citizen science observations and could also include points for plants present in herbarium, botanical gardens, planted as an ornamental.  Climatic variables used as predictors were extracted from world climate data using the raster package in R.  Elevation data for each pitcher observation was downloaded using the `elevatr` package.  The pitcher observation points were filtered to include only observations in the contiguous United States and predictor variables were extracted for each observation.  A data frame was created to hold this data, along with 10,000 randomly generated background points in the US and their extracted predictor variables.
 
+### Analysis
 
+Response and predictor variables were modeled using three different model types: logistic regression with logit link, random forest analysis for classification (presence/absence as factors), and maximum entropy model.  Both a global and restricted data set was fit for each model, the global model contained all 5 predictor variables (mean annual temperature, mean annual precipitation, max annual temperature, min annual temperature, and elevation).  The restricted model contained only two of the predictor variables.  Area under the curve (AUC) was used as a measure of model fit along with k-fold (k = 10) cross validation to ensure that we weren't overfitting our model.  Lastly, a confusion matrix was built for the best fitting model (highest AUC) in order to determine the number of correct and incorrect predictions from that model.
 
 
 ```{r getthedata}
@@ -169,7 +173,6 @@ spurp_data.sf$min_temp <- mintemp.extract
 
 
 #trim spurp data to the united states only
-
 boundary <- nation(resolution = '20m')
 extent(boundary)
 #class      : Extent 
@@ -188,10 +191,12 @@ plot(st_geometry(spurp_data.sf))
 #elevation <- get_elev_raster(boundary, z = 4) #keep getting an error that the url did not return tif
 ```
 
+
+
 ```{r elv, cache=TRUE}
 #get elevation data for pitcher plant locations
 #this takes a while (5 min)
-sp_elev_epqs <- get_elev_point(spurp_data.sf, src = "epqs")
+sp_elev_epqs <- get_elev_point(spurp_data.sf, src = "aws")
 sp_elev_epqs <- sp_elev_epqs %>% 
   st_transform(., crs = st_crs(r))
 #clean this up and add a presence column
@@ -218,7 +223,7 @@ bg.sf <- bg.sf %>%
 bg.sf$pres <- "0"
 
 #get elevation for background points
-bg.sf.e <- get_elev_point(bg.sf, src = "epqs")
+bg.sf.e <- get_elev_point(bg.sf, src = "aws")
 bg.el <- as.data.frame(bg.sf.e)
 bg.el$ID <- rownames(bg.el)
 #extract background point values from rasters of predictor variables
@@ -247,6 +252,12 @@ presabs.df$pres <- as.factor(presabs.df$pres)
 presabs.df[,1:5] <- scale(presabs.df[,1:5])
 pairs(presabs.df[,1:5])
 ```
+
+
+## Results
+
+### Logistic Regression Models
+
 
 
 ```{r logreg}
@@ -293,6 +304,8 @@ cv.err2
 #confusionMatrix(presabs.df.nona$pres, predicted.2)
 
 ```
+
+### Random Forest Models
 
 
 
@@ -344,6 +357,8 @@ with(rf2.cv, plot(n.var, error.cv))
 ```
 
 ```{r confmat, eval=FALSE}
+
+# confusion matrix for my best model (global random forest)
 nogeo <- presabs.df.nona
 nogeo$geometry <- NULL
 y_pred <- predict(rf1, newdata = presabs.df.nona[-6])
@@ -356,6 +371,9 @@ cm
 #false pos = 2
 #correct = 7983 + 4829 = 12812/12879 = .99479773 pretty good!
 ```
+
+### Maximum Entropy Models
+
 
 
 
@@ -387,7 +405,7 @@ plot(e2, 'ROC')
 
 
 
-```{r kfcv}
+```{r kfcv, eval=FALSE}
 #KFCV for maxent models
 pres.x <- presabs.df.nona[presabs.df.nona[,7] == 1, 1:5]
 back.x <- presabs.df.nona[presabs.df.nona[,7] == 0, 1:5]
