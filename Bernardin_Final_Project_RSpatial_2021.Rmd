@@ -42,7 +42,7 @@ library(dplyr)
 library(elevatr)
 library(rJava)
 library(ISLR)
-install.packages("pROC")
+library(boot)
 library(pROC)
 ```
 
@@ -78,19 +78,19 @@ library(pROC)
 r <- getData("worldclim",var="bio",res=10)
 #temp mean annual
 temp.rast <- r[[1]]
-names(temp.rast) <- "Temp"
+names(temp.rast) <- "temp"
 
 #mean annual precipitation
 precip.rast <- r[[12]]
-names(precip.rast) <- "Prec"
+names(precip.rast) <- "prec"
 
 #max temp warmest month
 maxtem.rast <- r[[5]]
-names(maxtem.rast) <- "Max_temp"
+names(maxtem.rast) <- "max_temp"
 
 #min temp coldest month
 mintem.rast <- r[[6]]
-names(mintem.rast) <- "Min_temp"
+names(mintem.rast) <- "min_temp"
 
 #stack 'em up!
 environ.stack <- stack(temp.rast, precip.rast, maxtem.rast, mintem.rast)
@@ -169,7 +169,9 @@ plot(st_geometry(spurp_data.sf))
 
 #get an elevation raster for the US for the maxent model
 #elevation <- get_elev_raster(boundary, z = 4) #keep getting an error that the url did not return tif
+```
 
+```{r elv, cache=TRUE}
 #get elevation data for pitcher plant locations
 #this takes a while (5 min)
 sp_elev_epqs <- get_elev_point(spurp_data.sf, src = "epqs")
@@ -232,50 +234,52 @@ pairs(presabs.df[,1:5])
 
 ```{r logreg}
 
-#GLOBAL MODEL
+presabs.df.nona <- drop_na(presabs.df)
+
+###GLOBAL MODEL
 #model using all the predictors
-logistic.global <- glm(pres~temp + precip + max_temp + min_temp + elevation, family=binomial(link="logit"), data=presabs.df)
+logistic.global <- glm(pres~temp + precip + max_temp + min_temp + elevation, family=binomial(link="logit"), data=presabs.df.nona)
 logistic.global
 summary(logistic.global)
 
-#calculate probability of default for each individual in test dataset
-predicted.1 <- predict(logistic.global, presabs.df, type="response")
+#calculate probability of pres/abs for each predic. in test dataset
+predicted.1 <- predict(logistic.global, presabs.df.nona, type="response")
 #calculate AUC
-auc(presabs.df$pres, predicted.1) #AUC = 0.882
+pROC::auc(presabs.df.nona$pres, predicted.1) #AUC = 0.882
+
+# KFCV 
+cv.err1 <- cv.glm(presabs.df.nona,logistic.global, K = 10)
+cv.err1$delta #0.1347364 0.1347278
+
+
 
 #REDUCED MODEL
 #model using two of the predictors
-logistic.two <- glm(pres ~ precip + elevation, family=binomial(link="logit"), data=presabs.df)
+logistic.two <- glm(pres ~ precip + elevation, family=binomial(link="logit"), data=presabs.df.nona)
 logistic.two
 summary(logistic.two)
 
 #calculate probability of default for each individual in test dataset
-predicted.2 <- predict(logistic.two, presabs.df, type="response")
+predicted.2 <- predict(logistic.two, presabs.df.nona, type="response")
 #calculate AUC
-auc(presabs.df$pres, predicted.2) #AUC = 0.691
+pROC::auc(presabs.df.nona$pres, predicted.2) #AUC = 0.6912
 
+# KFCV 
+cv.err2 <- cv.glm(presabs.df.nona,logistic.two, K = 10)
+cv.err2$delta #0.2021303 0.2021256
 
+cv.err2
 
 
 #CONFUSION MATRIX
 #global
-
-install.packages("caret")
-library(caret)
-#use model to predict probability of presence
-predicted.1 <- predict(logistic.global, presabs.df, type="response")
-head(predicted.1)
-presabs.df$pres <- as.factor(presabs.df$pres)
-#create confusion matrix
-confusionMatrix(presabs.df$pres, predicted.1)
+#confusionMatrix(presabs.df.nona$pres, predicted.2)
 
 ```
 
 
 
 ```{r RANFOR}
-presabs.df.nona <- drop_na(presabs.df)
-
 #GLOBAL MODEL
 #random forest regression
 glob.model <- pres ~ temp + precip + max_temp + min_temp + elevation
@@ -285,8 +289,16 @@ varImpPlot(rf1)
 #AUC
 rf1.roc<-roc(presabs.df.nona$pres,rf1$votes[,2])
 plot(rf1.roc)
-auc(rf1.roc) #0.9511
+auc(rf1.roc) #0.9748
 
+# KFCV 
+#divide up the predictor and response
+a <- presabs.df.nona
+a$pres <- NULL
+a$geometry <- NULL
+b <- presabs.df.nona$pres
+rf1.cv <- randomForest::rfcv(a, b, cv.fold=10)
+with(rf1.cv, plot(n.var, error.cv))
 
 #REDUCED MODEL
 #random forest regression
@@ -297,14 +309,41 @@ varImpPlot(rf2)
 #AUC
 rf2.roc<-roc(presabs.df.nona$pres,rf2$votes[,2])
 plot(rf2.roc)
-auc(rf2.roc) #0.9212
+auc(rf2.roc) #0.9181
+
+# KFCV 
+#divide up the predictor and response
+c <- presabs.df.nona
+c$pres <- NULL
+c$geometry <- NULL
+c$temp <- NULL
+c$min_temp <- NULL
+c$max_temp <- NULL
+b <- presabs.df.nona$pres
+rf2.cv <- randomForest::rfcv(c, b, cv.fold=10)
+with(rf2.cv, plot(n.var, error.cv))
+
+
+```
+
+```{r confmat, eval=FALSE}
+nogeo <- presabs.df.nona
+nogeo$geometry <- NULL
+y_pred <- predict(rf1, newdata = presabs.df.nona[-6])
+y_pred
+nogeo[,6]
+cm <- table(nogeo[,6], y_pred)
+cm
+
+#false neg = 65
+#false pos = 2
+#correct = 7983 + 4829 = 12812/12879 = .99479773 pretty good!
 ```
 
 
-```{r MAXENT}
-class(bg.sf)
-#GLOBAL MODEL
 
+```{r MAXENT}
+#GLOBAL MODEL
 max.fit1 <- maxent(environ.stack, x, bg)
 plot(max.fit1)
 response(max.fit1)
@@ -313,7 +352,6 @@ response(max.fit1)
 e1 <- evaluate(max.fit1, p = x, a = bg, x = environ.stack)
 e1 #0.9182098
 plot(e1, 'ROC')
-
 
 
 #REDUCED MODEL
@@ -333,23 +371,50 @@ plot(e2, 'ROC')
 
 
 ```{r kfcv}
+#KFCV for maxent models
+pres.x <- presabs.df.nona[presabs.df.nona[,7] == 1, 1:5]
+back.x <- presabs.df.nona[presabs.df.nona[,7] == 0, 1:5]
+
+
+eMAX<-list()
+
+folds <- 10
+
+kfold_pres <- kfold(pres.x, folds)
+kfold_back <- kfold(back.x, folds)
+
+install.packages("maxnet")
+library(maxnet)
+for (i in 1:folds) {
+  train <- pres.x[kfold_pres!= i,]
+  test <- pres.x[kfold_pres == i,]
+  backTrain<-back.x[kfold_back!=i,]
+  backTest<- back.x[kfold_back==i,]
+  dataTrain<-rbind(train,backTrain)
+  dataTest<-rbind(test,backTest)
+  maxnet_eval <- maxnet(dataTrain$pres, dataTrain[,1:5])
+  eMAX[[i]] <- evaluate(p=dataTest[which(dataTest$pres==1),],a=dataTest[which(dataTest$pres==0),], maxnet_eval)
+  plot(eMAX[[i]],'ROC')
+  
+}
+##Error in glmnet::glmnet(x = mm, y = as.factor(p), family = "binomial",  : 
+##number of elements in weights (0) not equal to the number of rows of x (11591)
 
 
 
+```
+
+```{r plot, eval=FALSE}
+
+#Best AUC was reported for the global random forest model (0.98)
+prRF <- predict(environ.stack, rf1, type="prob",index=2, na.action = na.omit)
+
+par(mfrow=c(1,2))
+plot(prRF, main='Random Forest Prediction')
 
 
 
 
 ```
 
-```{r bestmodel}
-
-
-
-
-
-
-
-```
-
-
+Best AUC was reported for the global random forest model (0.98)
