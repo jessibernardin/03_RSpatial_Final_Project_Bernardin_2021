@@ -435,7 +435,7 @@ for (i in 1:folds) {
 ```
 
 ```{r plot, eval=FALSE}
-
+#Attempted but didn't finish
 #Best AUC was reported for the global random forest model (0.98)
 prRF <- predict(environ.stack, rf1, type="prob",index=2, na.action = na.omit)
 
@@ -445,4 +445,6 @@ plot(prRF, main='Random Forest Prediction')
 
 ```
 
+
+## Discussion
 Best AUC was reported for the global random forest model (0.98)
