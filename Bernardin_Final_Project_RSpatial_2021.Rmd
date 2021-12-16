@@ -40,7 +40,7 @@ library(rgeos)
 library(randomForest)
 library(dplyr)
 library(devtools)
-install_github("jhollist/elevatr")
+#install_github("jhollist/elevatr")
 library(elevatr)
 library(rJava)
 library(ISLR)
@@ -258,6 +258,7 @@ pairs(presabs.df[,1:5])
 
 ### Logistic Regression Models
 
+A logistic regression was used to model the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables showed a significant effect (p< 0), temperature and precipitiation had a positive effect on presence, while max temp, min temp, and elevation had negative effects on presence.  Model fit for this model was AUC: 0.882.  When compared with the restricted model, the effect direction was the same, only sightly different values.  However using AUC again for model fit, the restricted model had an AUC = 0.6912.  When using K-fold cross validation (kfcv) the cross validated data scored a predicted error (delta) that is very low and is similar to the global logistic model (0.1347364 0.1347278).
 
 
 ```{r logreg}
@@ -276,9 +277,8 @@ predicted.1 <- predict(logistic.global, presabs.df.nona, type="response")
 pROC::auc(presabs.df.nona$pres, predicted.1) #AUC = 0.882
 
 # KFCV 
-cv.err1 <- cv.glm(presabs.df.nona,logistic.global, K = 10)
+cv.err1 <- boot::cv.glm(presabs.df.nona,logistic.global, K = 10)
 cv.err1$delta #0.1347364 0.1347278
-
 
 
 #REDUCED MODEL
@@ -293,20 +293,15 @@ predicted.2 <- predict(logistic.two, presabs.df.nona, type="response")
 pROC::auc(presabs.df.nona$pres, predicted.2) #AUC = 0.6912
 
 # KFCV 
-cv.err2 <- cv.glm(presabs.df.nona,logistic.two, K = 10)
+cv.err2 <- boot::cv.glm(presabs.df.nona,logistic.two, K = 10)
 cv.err2$delta #0.2021303 0.2021256
-
 cv.err2
-
-
-#CONFUSION MATRIX
-#global
-#confusionMatrix(presabs.df.nona$pres, predicted.2)
 
 ```
 
 ### Random Forest Models
 
+A random forest model was used to classify the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis and NAs were removed. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables were ranked by the model with elevation, max temp, and precipitation having the highest Mean Decrease GINI Index.  Model fit for this model was AUC: 0.9748.  When compared with the restricted model, the two variables had high Mean Decrease Gini Indices, but wasn't as informative as the global model and resulted in an AUC = 0.9181.  When using K-fold cross validation (kfcv) on the restricted model, the error was high (0.23) for the first variable (precipitation) and < 0.17 for elevation.  The global random forest model scored the best AUC of all 6 models so a confusion matrix was built to look at the occurance of false positives and negatives in relation to correct predictions.  We found that out of 12879 samples, false negatives = 65, false positives = 2, and correct predictions occured 99.5% of the time.
 
 
 ```{r RANFOR}
