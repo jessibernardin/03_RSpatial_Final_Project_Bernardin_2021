@@ -52,23 +52,24 @@ library(pROC)
 1.  Fit both a global and reduced model for:
 - a logistic regression
 - a random forest analysis
-- a maxent analysis (see dismo vignette for additional classifiers)
-- look at ISL for other classification approaches
+- a maxent analysis 
 
 2.  Predictor Variables:
 - Global Model = temperature, precipitation, elevation, max temperature, min temperature
 - Reduced Model = elevation, precipitation
 
-3.  Generate a confusion matrix and AUC for all 6 models
+3.  Generate AUC for all 6 models
 
-4.  Check for model fit using k-fold cross-validation
+4.  Generate confusion matrix for best model
 
-5.  Plot the spatial predictions from the best model
+5.  Check for model fit using k-fold cross-validation
 
-6.  Format the project as a Rmarkdown manuscript:
+6.  Plot the spatial predictions from the best model
+
+7.  Format the project as a Rmarkdown manuscript:
 - Introduction (questions, interests, hypothesis) 1-2 paragraph
 - Methods (justify assumptions and modifications) with code chunks
-- Results (0lots, AUC, con. matrix, kvcv)
+- Results
 - Discussion (interpret results and best model and why) 2-3 paragraphs
 
 
@@ -411,8 +412,6 @@ prRF <- predict(environ.stack, rf1, type="prob",index=2, na.action = na.omit)
 
 par(mfrow=c(1,2))
 plot(prRF, main='Random Forest Prediction')
-
-
 
 
 ```
