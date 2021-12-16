@@ -267,8 +267,6 @@ varImpPlot(rf2)
 ```
 
 
-
-
 ```{r MAXENT}
 class(bg.sf)
 #GLOBAL MODEL
@@ -285,14 +283,47 @@ plot(e1, 'ROC')
 
 
 #REDUCED MODEL
+short.stack <- stack(precip.rast, temp.rast)
+
+max.fit2 <- maxent(short.stack, x, bg)
+plot(max.fit2)
+response(max.fit2)
+
+#evaluate model
+e2 <- evaluate(max.fit2, p = x, a = bg.sf, x = short.stack)
+plot(e2, 'ROC')
+
+```
+
+
+```{r conmatrx}
+
+
+
 
 
 
 
 ```
 
+```{r kfcv}
 
 
 
+
+
+
+
+```
+
+```{r bestmodel}
+
+
+
+
+
+
+
+```
 
 
