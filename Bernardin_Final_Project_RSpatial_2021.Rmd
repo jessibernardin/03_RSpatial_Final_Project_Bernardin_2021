@@ -1,0 +1,298 @@
+---
+title: "03_RSpatial_Final_Project_Bernardin_2021"
+author: "Jessica Bernardin"
+date: "12/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages}
+library(tidycensus)
+library(tidyverse)
+library(pander)
+library(sf)
+library(terra)
+library(units)
+library(purrr)
+library(sp)
+library(profvis)
+library(ggmap)
+library(cartogram)
+library(patchwork)
+library(tmap)
+library(viridis)
+library(tigris)
+library(gridExtra)
+library(plotly)
+library(Rcpp)
+library(raster)
+library(rgbif)
+library(maps)
+library(dplyr)
+library(cowplot)
+library(ggspatial)
+library(dismo)
+library(rgdal) 
+library(rgeos)
+library(randomForest)
+library(dplyr)
+install.packages("elevatr")
+library(elevatr)
+library(rJava)
+
+```
+
+
+## Goals for the Assignment
+
+1.  Fit both a global and reduced model for:
+- a logistic regression
+- a random forest analysis
+- a maxent analysis (see dismo vignette for additional classifiers)
+- look at ISL for other classification approaches
+
+2.  Predictor Variables:
+- Global Model = temperature, precipitation, elevation, max temperature, min temperature
+- Reduced Model = elevation, precipitation
+
+3.  Generate a confusion matrix and AUC for all 6 models
+
+4.  Check for model fit using k-fold cross-validation
+
+5.  Plot the spatial predictions from the best model
+
+6.  Format the project as a Rmarkdown manuscript:
+- Introduction (questions, interests, hypothesis) 1-2 paragraph
+- Methods (justify assumptions and modifications) with code chunks
+- Results (0lots, AUC, con. matrix, kvcv)
+- Discussion (interpret results and best model and why) 2-3 paragraphs
+
+
+```{r getthedata}
+
+#####rasters of environmental variables
+r <- getData("worldclim",var="bio",res=10)
+#temp mean annual
+temp.rast <- r[[1]]
+names(temp.rast) <- "Temp"
+
+#mean annual precipitation
+precip.rast <- r[[12]]
+names(precip.rast) <- "Prec"
+
+#max temp warmest month
+maxtem.rast <- r[[5]]
+names(maxtem.rast) <- "Max_temp"
+
+#min temp coldest month
+mintem.rast <- r[[6]]
+names(mintem.rast) <- "Min_temp"
+
+#stack 'em up!
+environ.stack <- stack(temp.rast, precip.rast, maxtem.rast, mintem.rast)
+
+
+# download GBIF occurrence data
+sp <- c("Sarracenia purpurea")
+
+gbif_data <- rgbif::occ_data(scientificName = sp, hasCoordinate = TRUE, limit = 20000)
+
+# get the columns that matter for mapping and cleaning the occurrence data:
+spurp_data <- gbif_data$data[ , c("decimalLongitude", "decimalLatitude", "individualCount", "occurrenceStatus", "coordinateUncertaintyInMeters", "institutionCode", "references")]
+head(spurp_data)
+
+# map the occurrence data
+maps::map("world", xlim = range(spurp_data$decimalLongitude), ylim = range(spurp_data$decimalLatitude))
+points(spurp_data[ , c("decimalLongitude", "decimalLatitude")], pch = ".")
+
+class(spurp_data)
+spurp_data.sf <- st_as_sf(spurp_data, coords = c("decimalLongitude", "decimalLatitude"), crs = "EPSG:4326")
+spurp_data.sf <- spurp_data.sf %>% 
+  st_transform(., crs = st_crs(r))
+
+
+#get shapefile for united states with counties
+co <- counties(state = NULL)
+
+#take out places really far away
+co <- co[!co$STATEFP == "02",]#Alaska
+co <- co[!co$STATEFP == "60",] #American Samoa
+co <- co[!co$STATEFP == "72",]# Puerto Rico
+co <- co[!co$STATEFP == "78",] # Virgin Islands
+co <- co[!co$STATEFP == "66",] # Guam
+co <- co[!co$STATEFP == "15",] #HI
+co <- co[!co$STATEFP == "69",] # Northern Mariana Islands
+
+#plot counties
+gg <- ggplot()
+gg <- gg + geom_sf(data = co, color="black",
+                   fill="white", size=0.25)
+gg
+#transform counties to rasters
+co <- co %>% 
+  st_transform(., crs = st_crs(r))
+
+
+#extract climate data for pitcher locations
+temp.extract <- terra::extract(temp.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
+spurp_data.sf$temp <- temp.extract
+
+precip.extract <- terra::extract(precip.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
+spurp_data.sf$precip <- precip.extract
+
+maxtemp.extract <- terra::extract(maxtem.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
+spurp_data.sf$max_temp <- maxtemp.extract
+
+mintemp.extract <- terra::extract(mintem.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
+spurp_data.sf$min_temp <- mintemp.extract
+
+
+#trim spurp data to the united states only
+
+boundary <- nation(resolution = '20m')
+extent(boundary)
+#class      : Extent 
+#xmin       : -179.1743 
+#xmax       : 179.7739 
+#ymin       : 17.91377 
+#ymax       : 71.35256
+
+boundary <- boundary %>% 
+  st_transform(., crs = st_crs(r))
+
+spurp_data.sf <- st_intersection(spurp_data.sf, boundary)
+plot(st_geometry(spurp_data.sf))
+
+#get an elevation raster for the US for the maxent model
+#elevation <- get_elev_raster(boundary, z = 4) #keep getting an error that the url did not return tif
+
+#get elevation data for pitcher plant locations
+#this takes a while (5 min)
+sp_elev_epqs <- get_elev_point(spurp_data.sf, src = "epqs")
+sp_elev_epqs <- sp_elev_epqs %>% 
+  st_transform(., crs = st_crs(r))
+#clean this up and add a presence column
+sp <- sp_elev_epqs[c(6:9,13,15)]
+sp$pres <- "1"
+
+spurp_data.sf$pres <- "1"
+pres.pts <- as(spurp_data.sf, Class = "Spatial")
+pres.pts <- pres.pts[,-(1:12)]
+x <- pres.pts[,-(1)]
+x <- x[,-(3)]
+
+#make some random points in the US
+#set the extent for the pitcher plant data to be where we collect bg points
+e <- extent(sp_elev_epqs)
+bg <- randomPoints(maxtem.rast, 10000, ext=e)
+bg <- as.data.frame(bg)
+class(bg)
+bg.sf <- st_as_sf(bg, coords = c("x", "y"), crs = "EPSG:4326")
+
+bg.sf <- bg.sf %>% 
+  st_transform(., crs = st_crs(r))
+
+bg.sf$pres <- "0"
+
+#get elevation for background points
+bg.sf.e <- get_elev_point(bg.sf, src = "epqs")
+bg.el <- as.data.frame(bg.sf.e)
+bg.el$ID <- rownames(bg.el)
+#extract background point values from rasters of predictor variables
+bg.df <- extract(environ.stack, bg.sf.e, df = TRUE)
+
+bg.df.all <- merge(bg.df, bg.el, by= "ID")
+
+#these are the absence points
+bg.df.all$pres <- "0"
+
+#add our absence data to our presence data
+names(bg.df.all)
+names(sp)
+names(bg.df.all) <- c('ID', 'temp', 'precip', 'max_temp', 'min_temp', 'pres', 'elevation', 'el_units', 'geometry')
+
+bg.df.all <- as.data.frame(bg.df.all)
+bg.df.all <- subset(bg.df.all, select = -c(ID, el_units))
+sp <- as.data.frame(sp)
+
+#COMBINE PRES AND SIMULATED ABS POINTS!
+presabs.df <- rbind(sp, bg.df.all)
+
+presabs.df$pres <- as.factor(presabs.df$pres)
+
+#scale the predictors
+presabs.df[,1:5] <- scale(presabs.df[,1:5])
+pairs(presabs.df[,1:5])
+```
+
+
+```{r logreg}
+
+#GLOBAL MODEL
+#model using all the predictors
+logistic.global <- glm(pres~temp + precip + max_temp + min_temp + elevation, family=binomial(link="logit"), data=presabs.df)
+logistic.global
+summary(logistic.global)
+
+
+
+#REDUCED MODEL
+#model using two of the predictors
+logistic.two <- glm(pres ~ precip + elevation, family=binomial(link="logit"), data=presabs.df)
+logistic.two
+summary(logistic.two)
+
+
+```
+
+
+
+```{r RANFOR}
+presabs.df.nona <- drop_na(presabs.df)
+
+#GLOBAL MODEL
+#random forest regression
+glob.model <- pres ~ temp + precip + max_temp + min_temp + elevation
+rf1 <- randomForest(glob.model, data=presabs.df.nona, na.rm = TRUE)
+varImpPlot(rf1)
+
+#REDUCED MODEL
+#random forest regression
+reg.model <- pres ~ precip + elevation
+rf2 <- randomForest(reg.model, data = presabs.df.nona)
+varImpPlot(rf2)
+```
+
+
+
+
+```{r MAXENT}
+class(bg.sf)
+#GLOBAL MODEL
+
+max.fit1 <- maxent(environ.stack, x, bg)
+plot(max.fit1)
+response(max.fit1)
+
+#evaluate model
+e1 <- evaluate(max.fit1, p = x, a = bg.sf, x = environ.stack)
+plot(e1, 'ROC')
+
+
+
+
+#REDUCED MODEL
+
+
+
+
+```
+
+
+
+
+
+
