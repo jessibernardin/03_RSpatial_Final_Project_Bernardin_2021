@@ -44,6 +44,7 @@ library(rJava)
 library(ISLR)
 library(boot)
 library(pROC)
+
 ```
 
 
@@ -71,6 +72,21 @@ library(pROC)
 - Methods (justify assumptions and modifications) with code chunks
 - Results
 - Discussion (interpret results and best model and why) 2-3 paragraphs
+
+
+## Introduction
+
+*Sarrecenia purpurea* are a type of carnivorous plant that uses their passive pit traps to capture insect prey.  Prey are attracted to the nectar excreted by the plant along the rim of the pitcher.  Insects fall in and are digested by the aquatic community of invertebrates, bacteria, and fungi that inhabit the plant's traps.  These plants are distributed along the Eastern United States, from northern Florida to Canada, and west along the Great Lakes.  Despite this wide distribution, they are specialized in the types of environments they can inhabit, specially oligotrophic bogs and fens.  
+
+The goal of this project was to gain experiment working with spatial data and analysis in R.  Species occurrence data were used as response variables in order to determine which environmental variables might be driving species distribution.  We understand that there are likely variables not included in this project that more accurately explain their occurrence patterns (soil type, soil moisture, proximity to wetlands, soil pH), however for this project the goal was to work with general climate data in order to build a fundamental knowledge of building spatial data sets, visualizing spatial data, and analyzing spatial data in R.
+
+## Methods
+
+# Data
+
+Plant point occurrence data was downloaded using the rgbif package which pulls observations data from iNaturalist.  These data are citizen science observations and could also include points for plants present in herbarium, botanical gardens, planted ornamentals.  Climatic variables used as predictors were extracted from world climate data using the raster package in r.  Elevation data for each pitcher observation was downloaded using the elevatr package.  The pitcher observation points were filtered to include only observations in the contiguous United States and predictor variables were extracted for each observation.  A data frame was created to hold this data, along with 10,000 randomly generated background points in the US and their extracted predictor variables.
+
+
 
 
 ```{r getthedata}
