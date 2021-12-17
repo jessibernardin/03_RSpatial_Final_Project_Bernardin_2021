@@ -248,89 +248,87 @@ pairs(presabs.df[,1:5])
 
 ### Logistic Regression Models
 
-A logistic regression was used to model the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables showed a significant effect (p< 0), temperature and precipitiation had a positive effect on presence, while max temp, min temp, and elevation had negative effects on presence.  Model fit for this model was AUC: 0.882.  When compared with the restricted model, the effect direction was the same, only sightly different values.  However using AUC again for model fit, the restricted model had an AUC = 0.6912.  When using K-fold cross validation (kfcv) the cross validated data scored a predicted error (delta) that is very low and is similar to the global logistic model (0.1347364 0.1347278).
+A logistic regression was used to model the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables showed a significant effect (p< 0), temperature and precipitation had a positive effect on presence, while max temp, min temp, and elevation had negative effects on presence.  Model fit for this model was AUC: 0.8517.  When compared with the restricted model, the effect direction was the same, only sightly different values.  However using AUC again for model fit, the restricted model had an AUC = 0.7049.  When using K-fold cross validation (kfcv) the cross validated data scored a predicted error (delta) that is very low and is similar to the global logistic model (0.1487134 0.1487087).
 
 
 ```{r logreg}
 
 presabs.df.nona <- drop_na(presabs.df)
-
+presabs.df.nona$pres <- as.factor(presabs.df.nona$pres)
 ###GLOBAL MODEL
 #model using all the predictors
-logistic.global <- glm(pres~temp + precip + max_temp + min_temp + elevation, family=binomial(link="logit"), data=presabs.df.nona)
+logistic.global <- glm(pres~temp + prec + max_temp + min_temp + elevation, family=binomial(link="logit"), data=presabs.df.nona)
 logistic.global
 summary(logistic.global)
 
 #calculate probability of pres/abs for each predic. in test dataset
 predicted.1 <- predict(logistic.global, presabs.df.nona, type="response")
 #calculate AUC
-pROC::auc(presabs.df.nona$pres, predicted.1) #AUC = 0.882
+pROC::auc(presabs.df.nona$pres, predicted.1) #AUC = 0.8517
 
 # KFCV 
 cv.err1 <- boot::cv.glm(presabs.df.nona,logistic.global, K = 10)
-cv.err1$delta #0.1347364 0.1347278
+cv.err1$delta #0.1487134 0.1487087
 
 
 #REDUCED MODEL
 #model using two of the predictors
-logistic.two <- glm(pres ~ precip + elevation, family=binomial(link="logit"), data=presabs.df.nona)
+logistic.two <- glm(pres ~ prec + elevation, family=binomial(link="logit"), data=presabs.df.nona)
 logistic.two
 summary(logistic.two)
 
 #calculate probability of default for each individual in test dataset
 predicted.2 <- predict(logistic.two, presabs.df.nona, type="response")
 #calculate AUC
-pROC::auc(presabs.df.nona$pres, predicted.2) #AUC = 0.6912
+pROC::auc(presabs.df.nona$pres, predicted.2) #AUC = 0.7049
 
 # KFCV 
 cv.err2 <- boot::cv.glm(presabs.df.nona,logistic.two, K = 10)
-cv.err2$delta #0.2021303 0.2021256
+cv.err2$delta #0.1935652 0.1935632
 cv.err2
 
 ```
 
 ### Random Forest Models
 
-A random forest model was used to classify the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis and NAs were removed. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables were ranked by the model with elevation, max temp, and precipitation having the highest Mean Decrease GINI Index.  Model fit for this model was AUC: 0.9748.  When compared with the restricted model, the two variables had high Mean Decrease Gini Indices, but wasn't as informative as the global model and resulted in an AUC = 0.9181.  When using K-fold cross validation (kfcv) on the restricted model, the error was high (0.23) for the first variable (precipitation) and < 0.17 for elevation.  The global random forest model scored the best AUC of all 6 models so a confusion matrix was built to look at the occurance of false positives and negatives in relation to correct predictions.  We found that out of 12879 samples, false negatives = 65, false positives = 2, and correct predictions occured 99.5% of the time.
+A random forest model was used to classify the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis and NAs were removed. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables were ranked by the model with elevation, max temp, and precipitation having the highest Mean Decrease GINI Index.  Model fit for this model was AUC: 0.9843.  When compared with the restricted model, the two variables had high Mean Decrease Gini Indices, but wasn't as informative as the global model and resulted in an AUC = 0.9424.  When using K-fold cross validation (kfcv) on the restricted model, the error was high (0.23) for the first variable (precipitation) and < 0.17 for elevation.  The global random forest model scored the best AUC of all 6 models so a confusion matrix was built to look at the occurrence of false positives and negatives in relation to correct predictions.  We found that out of 14832 samples, false negatives = 70, false positives = 11, and correct predictions occurred 99.5% of the time.
 
 
 ```{r RANFOR}
 #GLOBAL MODEL
 #random forest regression
-glob.model <- pres ~ temp + precip + max_temp + min_temp + elevation
+glob.model <- pres ~ temp + prec + max_temp + min_temp + elevation
 rf1 <- randomForest(glob.model, data=presabs.df.nona, na.rm = TRUE)
 varImpPlot(rf1)
 
 #AUC
 rf1.roc<-roc(presabs.df.nona$pres,rf1$votes[,2])
 plot(rf1.roc)
-auc(rf1.roc) #0.9748
+auc(rf1.roc) #0.9843
 
 # KFCV 
 #divide up the predictor and response
 a <- presabs.df.nona
 a$pres <- NULL
-a$geometry <- NULL
 b <- presabs.df.nona$pres
 rf1.cv <- randomForest::rfcv(a, b, cv.fold=10)
 with(rf1.cv, plot(n.var, error.cv))
 
 #REDUCED MODEL
 #random forest regression
-reg.model <- pres ~ precip + elevation
+reg.model <- pres ~ prec + elevation
 rf2 <- randomForest(reg.model, data = presabs.df.nona)
 varImpPlot(rf2)
 
 #AUC
 rf2.roc<-roc(presabs.df.nona$pres,rf2$votes[,2])
 plot(rf2.roc)
-auc(rf2.roc) #0.9181
+auc(rf2.roc) #0.9424
 
 # KFCV 
 #divide up the predictor and response
 c <- presabs.df.nona
 c$pres <- NULL
-c$geometry <- NULL
 c$temp <- NULL
 c$min_temp <- NULL
 c$max_temp <- NULL
@@ -344,32 +342,29 @@ with(rf2.cv, plot(n.var, error.cv))
 ```{r confmat, eval=FALSE}
 
 # confusion matrix for my best model (global random forest)
-nogeo <- presabs.df.nona
-nogeo$geometry <- NULL
 y_pred <- predict(rf1, newdata = presabs.df.nona[-6])
 y_pred
-nogeo[,6]
-cm <- table(nogeo[,6], y_pred)
+cm <- table(presabs.df.nona[,6], y_pred)
 cm
 
-#false neg = 65
-#false pos = 2
-#correct = 7983 + 4829 = 12812/12879 = .99479773 pretty good!
+#false neg = 70
+#false pos = 11
+#correct = 9930 + 4821 = 14751/14832 = .9945388 pretty good!
 ```
 
 ### Maximum Entropy Models
 
-The last set of models used maximum entropy (`maxent()` via `dismo`), similarly to the other models, this model was fit with a global and restricted set of predictors.  However, elevation is excluded in this analysis and only the bioclim variables were input into the model via a raster stack.  The global model showed that out of all the total percentage of the variation that could be explained via the model, precipitation explained 40% of that.  Next max temp showed the next highest at 35%, with min temp the lowest at <5%.  The AUC for this model was 0.9182098.  Looking at just precipitation and temperature in the restricted model, precipitation contributed to 60% of the explanatory power and temperature 40%.  The AUC for the restricted model was slightly lower than the global model, at 0.8906049.
+The last set of models used maximum entropy (`maxent()` via `dismo`), similarly to the other models, this model was fit with a global and restricted set of predictors. The global model showed that out of all the total percentage of the variation that could be explained via the model, precipitation explained 40% of that.  Next max temp showed the next highest at 35%, with min temp the lowest at <5%.  The AUC for this model was 0.9182098.  Looking at just precipitation and temperature in the restricted model, precipitation contributed to 60% of the explanatory power and temperature 40%.  The AUC for the restricted model was slightly lower than the global model, at 0.8906049.
 
 
 ```{r MAXENT}
 #GLOBAL MODEL
-max.fit1 <- maxent(environ.stack, x, bg)
+max.fit1 <- dismo::maxent(environ.stack, pres.pts, bg)
 plot(max.fit1)
 response(max.fit1)
 
 #evaluate model
-e1 <- evaluate(max.fit1, p = x, a = bg, x = environ.stack)
+e1 <- evaluate(max.fit1, p = pres.pts, a = bg, x = environ.stack)
 e1 #0.9182098
 plot(e1, 'ROC')
 
@@ -451,4 +446,5 @@ plot_min_depth_distribution(rf1)
 
 
 ## Discussion
+
 Best AUC was reported for the global random forest model (0.98).  The distribution of minimal depth provides a visualization of which variables are the most important in terms of informing the model, variables with lower mean depth scores are able to group the most numbers of observations with the least branches.  In the case of our random forest global model, precipitation and max temperature were the most efficient at grouping observations (mean minimal depth, 1 and 1,1 respectively).Each model provided valuable information, the random forest model gave an easy and accurate way of determining variable importance and effect of including less variables.  This provides helpful information, especially when variables may be correlated.  Even though the logistic regression had a lower AUC than maximum entropy and random forest, the information it provides in terms of effect size and direction on the response variable provides a good tool for making predictions.  Especially if we used random forest to determine which variables to include in the logistic regression.  
