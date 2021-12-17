@@ -2,7 +2,9 @@
 title: "03_RSpatial_Final_Project_Bernardin_2021"
 author: "Jessica Bernardin"
 date: "12/9/2021"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -46,7 +48,8 @@ library(rJava)
 library(ISLR)
 library(boot)
 library(pROC)
-
+#devtools::install_github("MI2DataLab/randomForestExplainer")
+library(randomForestExplainer)
 ```
 
 
@@ -113,8 +116,31 @@ names(maxtem.rast) <- "max_temp"
 mintem.rast <- r[[6]]
 names(mintem.rast) <- "min_temp"
 
+#get an elevation raster for the US for the maxent model
+elevation <- get_elev_raster(boundary, z = 4) 
+elevation <- projectRaster(elevation, crs = crs(r))
+
+#trim  data to the united states only
+boundary <- nation(resolution = '20m')
+extent(boundary)
+#class      : Extent 
+#xmin       : -179.1743 
+#xmax       : 179.7739 
+#ymin       : 17.91377 
+#ymax       : 71.35256
+
+boundary <- boundary %>% 
+  st_transform(., crs = st_crs(r))
+
+e <- extent(-123.7791, -66.9675, 20, 50)
+
+elevation.crop <- crop(elevation, e)
+
 #stack 'em up!
-environ.stack <- stack(temp.rast, precip.rast, maxtem.rast, mintem.rast)
+rs <- stack(temp.rast, precip.rast, maxtem.rast, mintem.rast)
+r1 <- resample(rs,elevation.crop, method='ngb')
+environ.stack <- stack(r1,elevation.crop)
+plot(r1[[1]])
 
 
 # download GBIF occurrence data
@@ -153,66 +179,40 @@ gg <- ggplot()
 gg <- gg + geom_sf(data = co, color="black",
                    fill="white", size=0.25)
 gg
-#transform counties to rasters
+#reproject crs of counties to raster
 co <- co %>% 
   st_transform(., crs = st_crs(r))
 
-
-#extract climate data for pitcher locations
-temp.extract <- terra::extract(temp.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
-spurp_data.sf$temp <- temp.extract
-
-precip.extract <- terra::extract(precip.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
-spurp_data.sf$precip <- precip.extract
-
-maxtemp.extract <- terra::extract(maxtem.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
-spurp_data.sf$max_temp <- maxtemp.extract
-
-mintemp.extract <- terra::extract(mintem.rast, spurp_data.sf, fun = mean, na.rm=TRUE)
-spurp_data.sf$min_temp <- mintemp.extract
-
-
-#trim spurp data to the united states only
-boundary <- nation(resolution = '20m')
-extent(boundary)
-#class      : Extent 
-#xmin       : -179.1743 
-#xmax       : 179.7739 
-#ymin       : 17.91377 
-#ymax       : 71.35256
-
-boundary <- boundary %>% 
-  st_transform(., crs = st_crs(r))
-
+#filter to US
 spurp_data.sf <- st_intersection(spurp_data.sf, boundary)
 plot(st_geometry(spurp_data.sf))
 
-#get an elevation raster for the US for the maxent model
-#elevation <- get_elev_raster(boundary, z = 4) #keep getting an error that the url did not return tif
-```
+#extract climate data for pitcher locations
+extract <- terra::extract(environ.stack, spurp_data.sf, fun = mean, na.rm=TRUE)
+extract.df <- as.data.frame(extract)
+names(extract.df)[5] <- "elevation"
 
+#combine plant data with predictor variables
+pred.resp <- cbind(extract.df, spurp_data.sf)
 
+#remove rows we don't need
+pred.resp <- pred.resp[,-(6:13)]
 
-```{r elv, cache=TRUE}
-#get elevation data for pitcher plant locations
-#this takes a while (5 min)
-sp_elev_epqs <- get_elev_point(spurp_data.sf, src = "aws")
-sp_elev_epqs <- sp_elev_epqs %>% 
-  st_transform(., crs = st_crs(r))
-#clean this up and add a presence column
-sp <- sp_elev_epqs[c(6:9,13,15)]
-sp$pres <- "1"
+#add presence data (for rf and log)
+pred.resp$pres <- "1"
+pred.resp <- pred.resp[,-(6)]
 
+#some spatial data presence points also (for maxent)
 spurp_data.sf$pres <- "1"
 pres.pts <- as(spurp_data.sf, Class = "Spatial")
-pres.pts <- pres.pts[,-(1:12)]
-x <- pres.pts[,-(1)]
-x <- x[,-(3)]
+head(pres.pts)
+pres.pts <- pres.pts[,-(1:8)]
+head(pres.pts)
+
 
 #make some random points in the US
 #set the extent for the pitcher plant data to be where we collect bg points
-e <- extent(sp_elev_epqs)
-bg <- randomPoints(maxtem.rast, 10000, ext=e)
+bg <- randomPoints(environ.stack, 10000, ext=e)
 bg <- as.data.frame(bg)
 class(bg)
 bg.sf <- st_as_sf(bg, coords = c("x", "y"), crs = "EPSG:4326")
@@ -222,29 +222,19 @@ bg.sf <- bg.sf %>%
 
 bg.sf$pres <- "0"
 
-#get elevation for background points
-bg.sf.e <- get_elev_point(bg.sf, src = "aws")
-bg.el <- as.data.frame(bg.sf.e)
-bg.el$ID <- rownames(bg.el)
 #extract background point values from rasters of predictor variables
-bg.df <- extract(environ.stack, bg.sf.e, df = TRUE)
-
-bg.df.all <- merge(bg.df, bg.el, by= "ID")
+bg.df <- extract(environ.stack, bg.sf, df = TRUE)
+bg.df <- bg.df[,-(1)]
+names(bg.df)[5] <- "elevation"
 
 #these are the absence points
-bg.df.all$pres <- "0"
+bg.df$pres <- "0"
 
-#add our absence data to our presence data
-names(bg.df.all)
-names(sp)
-names(bg.df.all) <- c('ID', 'temp', 'precip', 'max_temp', 'min_temp', 'pres', 'elevation', 'el_units', 'geometry')
-
-bg.df.all <- as.data.frame(bg.df.all)
-bg.df.all <- subset(bg.df.all, select = -c(ID, el_units))
-sp <- as.data.frame(sp)
+bg.df <- as.data.frame(bg.df)
+pred.resp <- as.data.frame(pred.resp)
 
 #COMBINE PRES AND SIMULATED ABS POINTS!
-presabs.df <- rbind(sp, bg.df.all)
+presabs.df <- rbind(pred.resp, bg.df)
 
 presabs.df$pres <- as.factor(presabs.df$pres)
 
@@ -369,7 +359,7 @@ cm
 
 ### Maximum Entropy Models
 
-
+The last set of models used maximum entropy (`maxent()` via `dismo`), similarly to the other models, this model was fit with a global and restricted set of predictors.  However, elevation is excluded in this analysis and only the bioclim variables were input into the model via a raster stack.  The global model showed that out of all the total percentage of the variation that could be explained via the model, precipitation explained 40% of that.  Next max temp showed the next highest at 35%, with min temp the lowest at <5%.  The AUC for this model was 0.9182098.  Looking at just precipitation and temperature in the restricted model, precipitation contributed to 60% of the explanatory power and temperature 40%.  The AUC for the restricted model was slightly lower than the global model, at 0.8906049.
 
 
 ```{r MAXENT}
@@ -402,19 +392,17 @@ plot(e2, 'ROC')
 
 ```{r kfcv, eval=FALSE}
 #KFCV for maxent models
+library(maxnet)
 pres.x <- presabs.df.nona[presabs.df.nona[,7] == 1, 1:5]
 back.x <- presabs.df.nona[presabs.df.nona[,7] == 0, 1:5]
 
-
 eMAX<-list()
-
 folds <- 10
-
 kfold_pres <- kfold(pres.x, folds)
 kfold_back <- kfold(back.x, folds)
 
-install.packages("maxnet")
-library(maxnet)
+
+
 for (i in 1:folds) {
   train <- pres.x[kfold_pres!= i,]
   test <- pres.x[kfold_pres == i,]
@@ -437,14 +425,30 @@ for (i in 1:folds) {
 ```{r plot, eval=FALSE}
 #Attempted but didn't finish
 #Best AUC was reported for the global random forest model (0.98)
-prRF <- predict(environ.stack, rf1, type="prob",index=2, na.action = na.omit)
-
+prRF <- predict(precip.rast, rf1, type="response")
+rf1
 par(mfrow=c(1,2))
-plot(prRF, main='Random Forest Prediction')
+plot(precip.rast)
+
+
+
+r4 <- predict(logo, rfmod2, type='prob')
+rr4 <- as(r4, "Raster")
+raster::spplot(rr4)
+
+
+
+
+#Variable Important and Depth Plot
+#mean minimal depth, the smaller the number the more important the variable and the more observations in can group at lower branches
+plot_min_depth_distribution(rf1)
+
+
+
 
 
 ```
 
 
 ## Discussion
-Best AUC was reported for the global random forest model (0.98)
+Best AUC was reported for the global random forest model (0.98).  The distribution of minimal depth provides a visualization of which variables are the most important in terms of informing the model, variables with lower mean depth scores are able to group the most numbers of observations with the least branches.  In the case of our random forest global model, precipitation and max temperature were the most efficient at grouping observations (mean minimal depth, 1 and 1,1 respectively).Each model provided valuable information, the random forest model gave an easy and accurate way of determining variable importance and effect of including less variables.  This provides helpful information, especially when variables may be correlated.  Even though the logistic regression had a lower AUC than maximum entropy and random forest, the information it provides in terms of effect size and direction on the response variable provides a good tool for making predictions.  Especially if we used random forest to determine which variables to include in the logistic regression.  
