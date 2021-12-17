@@ -3,15 +3,15 @@ title: "03_RSpatial_Final_Project_Bernardin_2021"
 author: "Jessica Bernardin"
 date: "12/9/2021"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r packages}
+```{r packages, message=FALSE}
 library(tidycensus)
 library(tidyverse)
 library(pander)
@@ -56,11 +56,13 @@ library(randomForestExplainer)
 ## Goals for the Assignment
 
 1.  Fit both a global and reduced model for:
+
 - a logistic regression
 - a random forest analysis
 - a maxent analysis 
 
 2.  Predictor Variables:
+
 - Global Model = temperature, precipitation, elevation, max temperature, min temperature
 - Reduced Model = elevation, precipitation
 
@@ -73,6 +75,7 @@ library(randomForestExplainer)
 6.  Plot the spatial predictions from the best model
 
 7.  Format the project as a Rmarkdown manuscript:
+
 - Introduction (questions, interests, hypothesis) 1-2 paragraph
 - Methods (justify assumptions and modifications) with code chunks
 - Results
@@ -116,10 +119,6 @@ names(maxtem.rast) <- "max_temp"
 mintem.rast <- r[[6]]
 names(mintem.rast) <- "min_temp"
 
-#get an elevation raster for the US for the maxent model
-elevation <- get_elev_raster(boundary, z = 4) 
-elevation <- projectRaster(elevation, crs = crs(r))
-
 #trim  data to the united states only
 boundary <- nation(resolution = '20m')
 extent(boundary)
@@ -134,14 +133,16 @@ boundary <- boundary %>%
 
 e <- extent(-123.7791, -66.9675, 20, 50)
 
+#get an elevation raster for the US for the maxent model
+elevation <- elevatr::get_elev_raster(boundary, z = 4) 
+elevation <- projectRaster(elevation, crs = crs(r))
+
 elevation.crop <- crop(elevation, e)
 
 #stack 'em up!
 rs <- stack(temp.rast, precip.rast, maxtem.rast, mintem.rast)
 r1 <- resample(rs,elevation.crop, method='ngb')
 environ.stack <- stack(r1,elevation.crop)
-plot(r1[[1]])
-
 
 # download GBIF occurrence data
 sp <- c("Sarracenia purpurea")
@@ -150,13 +151,11 @@ gbif_data <- rgbif::occ_data(scientificName = sp, hasCoordinate = TRUE, limit = 
 
 # get the columns that matter for mapping and cleaning the occurrence data:
 spurp_data <- gbif_data$data[ , c("decimalLongitude", "decimalLatitude", "individualCount", "occurrenceStatus", "coordinateUncertaintyInMeters", "institutionCode", "references")]
-head(spurp_data)
 
 # map the occurrence data
 maps::map("world", xlim = range(spurp_data$decimalLongitude), ylim = range(spurp_data$decimalLatitude))
 points(spurp_data[ , c("decimalLongitude", "decimalLatitude")], pch = ".")
 
-class(spurp_data)
 spurp_data.sf <- st_as_sf(spurp_data, coords = c("decimalLongitude", "decimalLatitude"), crs = "EPSG:4326")
 spurp_data.sf <- spurp_data.sf %>% 
   st_transform(., crs = st_crs(r))
@@ -207,8 +206,6 @@ spurp_data.sf$pres <- "1"
 pres.pts <- as(spurp_data.sf, Class = "Spatial")
 head(pres.pts)
 pres.pts <- pres.pts[,-(1:8)]
-head(pres.pts)
-
 
 #make some random points in the US
 #set the extent for the pitcher plant data to be where we collect bg points
@@ -248,7 +245,7 @@ pairs(presabs.df[,1:5])
 
 ### Logistic Regression Models
 
-A logistic regression was used to model the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables showed a significant effect (p< 0), temperature and precipitation had a positive effect on presence, while max temp, min temp, and elevation had negative effects on presence.  Model fit for this model was AUC: 0.8517.  When compared with the restricted model, the effect direction was the same, only sightly different values.  However using AUC again for model fit, the restricted model had an AUC = 0.7049.  When using K-fold cross validation (kfcv) the cross validated data scored a predicted error (delta) that is very low and is similar to the global logistic model (0.1487134 0.1487087).
+A logistic regression was used to model the binary presence and absence data in pitcher plant observations.  The variables were scaled prior to analysis. The global model compared the effect of all 5 variables on the presence of pitcher plants.  All 5 variables showed a significant effect (p< 0), temperature and precipitation had a positive effect on presence, while max temp, min temp, and elevation had negative effects on presence.  Model fit for this model was AUC: 0.8517.  When compared with the restricted model, the effect direction was the same, only sightly different values.  However using AUC again for model fit, the restricted model had an AUC = 0.7049.  When using K-fold cross validation (kfcv) the cross validated data scored a mean squared error (delta) that is very low and is similar to the global logistic model (0.1487134 0.1487087).
 
 
 ```{r logreg}
@@ -379,7 +376,7 @@ plot(max.fit2)
 response(max.fit2)
 
 #evaluate model
-e2 <- evaluate(max.fit2, p = x, a = bg, x = short.stack)
+e2 <- evaluate(max.fit2, p = pres.pts, a = bg, x = short.stack)
 e2 #0.8273883
 plot(e2, 'ROC')
 
@@ -416,7 +413,27 @@ for (i in 1:folds) {
 
 ```
 
-```{r plot, eval=FALSE}
+
+```{r maxentkfcc2}
+
+#Lets try a different way to do kfcv for maxent...
+#install.packages("ecospat")
+library(ecospat)
+me.pred <- ecospat.cv.me(presabs.df.nona, names(presabs.df.nona)[6],
+             names(presabs.df.nona)[-6], K = 10, cv.lim = 10, jack.knife = FALSE)
+
+plot(me.pred)
+
+```
+
+
+
+
+
+
+
+
+```{r plot, mindepth}
 
 #Variable Important and Depth Plot
 #mean minimal depth, the smaller the number the more important the variable and the more observations in can group at lower branches
@@ -429,4 +446,4 @@ plot_min_depth_distribution(rf1)
 
 Best AUC was reported for the global random forest model (0.98).  The distribution of minimal depth provides a visualization of which variables are the most important in terms of informing the model, variables with lower mean depth scores are able to group the most numbers of observations with the least branches.  In the case of our random forest global model, precipitation and max temperature were the most efficient at grouping observations (mean minimal depth, 1 and 1.1 respectively).Each model provided valuable information, the random forest model gave an easy and accurate way of determining variable importance and effect of including less variables.  This provides helpful information, especially when variables may be correlated.  Even though the logistic regression had a lower AUC than maximum entropy and random forest, the information it provides in terms of effect size and direction on the response variable provides a good tool for making predictions.  Especially if we used random forest to determine which variables to include in the logistic regression.  
 
-I think using these models together helps to differentiate between variable importance, effect size, and predictive power.  Out of all of the models, random forest and the `glm` were the easiest for me to use, especially with the data and formula for the models and the k-fold cross validation.  `MaxEnt` was harder to understand what to put into the model and how to manipulate the data to perform kfcv.  Overall, the data I used to try and predict pitcher plant occurrence was informative.  It makes sense that precipitation would have a large effect on plant distribution because these plants are obligate bog dwellers and their survival depends on rainwater filling their pitchers.  I was surprised to see elevation also having a large effect and variable importance.  It makes sense because most bogs occur at sea level or close to, however, *S. purpurea* do range up into higher elevations (high altitude bogs).
+I think using these models together helps to differentiate between variable importance, effect size, and predictive power.  Out of all of the models, random forest and the `glm` were the easiest for me to use, especially with the data and formula for the models and the k-fold cross validation.  `MaxEnt` was harder to understand what to put into the model and how to manipulate the data to perform kfcv.  Overall, the data I used to try and predict pitcher plant occurrence was informative.  It makes sense that precipitation would have a large effect on plant distribution because these plants are obligates of bog habitats and their survival depends on rainwater filling their pitchers.  I was surprised to see elevation also having a large effect and variable importance because despite most bogs occurring at sea level or close to, some *S. purpurea* have ranges that are at much higher elevations (high altitude bogs).
