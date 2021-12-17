@@ -76,7 +76,7 @@ library(randomForestExplainer)
 - Introduction (questions, interests, hypothesis) 1-2 paragraph
 - Methods (justify assumptions and modifications) with code chunks
 - Results
-- Discussion (interpret results and best model and why) 2-3 paragraphs
+- Discussion (interpret results and best model and why) 2 paragraphs
 
 
 ## Introduction
@@ -354,31 +354,33 @@ cm
 
 ### Maximum Entropy Models
 
-The last set of models used maximum entropy (`maxent()` via `dismo`), similarly to the other models, this model was fit with a global and restricted set of predictors. The global model showed that out of all the total percentage of the variation that could be explained via the model, precipitation explained 40% of that.  Next max temp showed the next highest at 35%, with min temp the lowest at <5%.  The AUC for this model was 0.9182098.  Looking at just precipitation and temperature in the restricted model, precipitation contributed to 60% of the explanatory power and temperature 40%.  The AUC for the restricted model was slightly lower than the global model, at 0.8906049.
+The last set of models used maximum entropy (`maxent()` via `dismo`), similarly to the other models, this model was fit with a global and restricted set of predictors. The global model showed that out of the total percentage of the variation that could be explained via the model, precipitation explained 40% of that.  Next max temp showed the next highest at 28%, with min temp the lowest at <5%.  The AUC for this model was 0.9346028  Looking at just precipitation and temperature in the restricted model, precipitation contributed to 80% of the explanatory power and elevation <20%.  The AUC for the restricted model was slightly lower than the global model, at 0.8273883
 
 
 ```{r MAXENT}
 #GLOBAL MODEL
 max.fit1 <- dismo::maxent(environ.stack, pres.pts, bg)
 plot(max.fit1)
-response(max.fit1)
+dismo::response(max.fit1)
 
 #evaluate model
 e1 <- evaluate(max.fit1, p = pres.pts, a = bg, x = environ.stack)
-e1 #0.9182098
+e1 #0.9346028
 plot(e1, 'ROC')
 
 
 #REDUCED MODEL
-short.stack <- stack(precip.rast, temp.rast)
+pr <- raster::subset(environ.stack, 2, drop = FALSE)
+elev <- raster::subset(environ.stack, 5, drop = FALSE)
+short.stack <- stack(pr, elev)
 
-max.fit2 <- maxent(short.stack, x, bg)
+max.fit2 <- maxent(short.stack, pres.pts, bg)
 plot(max.fit2)
 response(max.fit2)
 
 #evaluate model
 e2 <- evaluate(max.fit2, p = x, a = bg, x = short.stack)
-e2 #0.8906049
+e2 #0.8273883
 plot(e2, 'ROC')
 
 ```
@@ -388,15 +390,13 @@ plot(e2, 'ROC')
 ```{r kfcv, eval=FALSE}
 #KFCV for maxent models
 library(maxnet)
-pres.x <- presabs.df.nona[presabs.df.nona[,7] == 1, 1:5]
-back.x <- presabs.df.nona[presabs.df.nona[,7] == 0, 1:5]
+pres.x <- presabs.df.nona[presabs.df.nona[,6] == 1, 1:5]
+back.x <- presabs.df.nona[presabs.df.nona[,6] == 0, 1:5]
 
 eMAX<-list()
 folds <- 10
 kfold_pres <- kfold(pres.x, folds)
 kfold_back <- kfold(back.x, folds)
-
-
 
 for (i in 1:folds) {
   train <- pres.x[kfold_pres!= i,]
@@ -408,43 +408,25 @@ for (i in 1:folds) {
   maxnet_eval <- maxnet(dataTrain$pres, dataTrain[,1:5])
   eMAX[[i]] <- evaluate(p=dataTest[which(dataTest$pres==1),],a=dataTest[which(dataTest$pres==0),], maxnet_eval)
   plot(eMAX[[i]],'ROC')
-  
 }
 ##Error in glmnet::glmnet(x = mm, y = as.factor(p), family = "binomial",  : 
-##number of elements in weights (0) not equal to the number of rows of x (11591)
+##number of elements in weights (0) not equal to the number of rows of x (13349)
 
 
 
 ```
 
 ```{r plot, eval=FALSE}
-#Attempted but didn't finish
-#Best AUC was reported for the global random forest model (0.98)
-prRF <- predict(precip.rast, rf1, type="response")
-rf1
-par(mfrow=c(1,2))
-plot(precip.rast)
-
-
-
-r4 <- predict(logo, rfmod2, type='prob')
-rr4 <- as(r4, "Raster")
-raster::spplot(rr4)
-
-
-
 
 #Variable Important and Depth Plot
 #mean minimal depth, the smaller the number the more important the variable and the more observations in can group at lower branches
 plot_min_depth_distribution(rf1)
-
-
-
-
 
 ```
 
 
 ## Discussion
 
-Best AUC was reported for the global random forest model (0.98).  The distribution of minimal depth provides a visualization of which variables are the most important in terms of informing the model, variables with lower mean depth scores are able to group the most numbers of observations with the least branches.  In the case of our random forest global model, precipitation and max temperature were the most efficient at grouping observations (mean minimal depth, 1 and 1,1 respectively).Each model provided valuable information, the random forest model gave an easy and accurate way of determining variable importance and effect of including less variables.  This provides helpful information, especially when variables may be correlated.  Even though the logistic regression had a lower AUC than maximum entropy and random forest, the information it provides in terms of effect size and direction on the response variable provides a good tool for making predictions.  Especially if we used random forest to determine which variables to include in the logistic regression.  
+Best AUC was reported for the global random forest model (0.98).  The distribution of minimal depth provides a visualization of which variables are the most important in terms of informing the model, variables with lower mean depth scores are able to group the most numbers of observations with the least branches.  In the case of our random forest global model, precipitation and max temperature were the most efficient at grouping observations (mean minimal depth, 1 and 1.1 respectively).Each model provided valuable information, the random forest model gave an easy and accurate way of determining variable importance and effect of including less variables.  This provides helpful information, especially when variables may be correlated.  Even though the logistic regression had a lower AUC than maximum entropy and random forest, the information it provides in terms of effect size and direction on the response variable provides a good tool for making predictions.  Especially if we used random forest to determine which variables to include in the logistic regression.  
+
+I think using these models together helps to differentiate between variable importance, effect size, and predictive power.  Out of all of the models, random forest and the `glm` were the easiest for me to use, especially with the data and formula for the models and the k-fold cross validation.  `MaxEnt` was harder to understand what to put into the model and how to manipulate the data to perform kfcv.  Overall, the data I used to try and predict pitcher plant occurrence was informative.  It makes sense that precipitation would have a large effect on plant distribution because these plants are obligate bog dwellers and their survival depends on rainwater filling their pitchers.  I was surprised to see elevation also having a large effect and variable importance.  It makes sense because most bogs occur at sea level or close to, however, *S. purpurea* do range up into higher elevations (high altitude bogs).
